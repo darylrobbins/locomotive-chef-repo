@@ -16,8 +16,8 @@ on a single server or multiple servers:
 * App deployment with Capistrano
 
 The Chef recipes in this repository are meant to set up servers with a bare
-**Ubuntu 12.04(.1) LTS (Precise Pangolin)** installation and that you have a user
-with sudo access and a SSH Server installed.
+**Ubuntu 12.04(.x) LTS (Precise Pangolin)** installation and that you have root
+or sudo access.
 
 ## Getting started
 
@@ -25,18 +25,17 @@ with sudo access and a SSH Server installed.
 
 Your server has:
 
-* Ubuntu 12.04(.1) LTS is installed.
+* Ubuntu 12.04 LTS or a later minor version. The latest is Ubuntu 12.04.3 LTS.
 
 ### Installation
 
-Clone the repository onto your own workstation. I am using ```firmhouse_chef_repo``` as
-destination folder as an example.
+Clone the repository onto your own workstation.
 
 ```sh
-git clone git://github.com/firmhouse/locomotive-chef-repo.git firmhouse_chef_repo
+git clone git://github.com/intercity/chef-repo.git chef_repo
 ```
 
-And initialize submodules which will fetch:
+And initialize submodules:
 
 ```sh
 git submodule init
@@ -51,30 +50,21 @@ bundle
 
 ### Setting up the server
 
-First, bootstrap your server with a Chef client by using the following command
-with the username and password your VPS/server vendor provided:
-
-This command will log in and prepare your server to run the Chef cookbooks.
+Prepare the server with `knife solo`. This installs Chef.
 
 ```sh
 bundle exec knife solo prepare <your user>@<your host/ip>
 ```
 
-This command will also create a **json** file with your hostname under the `nodes/`
-directory. This is the file that is used to specify specific settings per
-server.
+This will create `nodes/<your host/ip>.json`. Copy the contents from `nodes/sample_host.json` into
+your host json file.
 
-First, replace the entire contents of `nodes/your_host.json` with the contents of
-`nodes/sample_host.json`
+In the file, replace the samples between `< >` with the values for your server and applications.
 
-Then, replace the same configuration values in the json file with your own values.
-You specifically need to modify:
-
-* In the `authorization` section, replace `<your user>` with the user you prepared your server.
-* In the `mysql` section replace the three `<random password>` with your desired MySQL passwords.
+* In the `authorization` section, replace `<your sudo user>` with the user you prepared your server.
+* In the `mysql` section replace the three `<enter a random password>` with your desired MySQL passwords.
 * In the `ssh_deploy_keys` section, copy the contents of your `~/.ssh/id_rsa.pub` file so your workstation is enabled to deploy with Capistrano.
-* In the `active_applications` section, customize the sample `myapp` values with your own Rails application values.
-* In the `rbenv` section, enter the correct Ruby version that your app should use.
+* In the `active_applications` section, customize the values with your own Rails application values.
 
 When your host configuration file is set up you run:
 
@@ -82,19 +72,12 @@ When your host configuration file is set up you run:
 bundle exec knife solo cook <your user>@<your host/ip>
 ```
 
-After this command runs successfully, you should be able to browse to the
-domain name of your server and see a 503 Nginx error message. When the
-command does not run succesfully, see if there are any errors in your host
-configuration file, or file an issue on GitHub.
-
-You see the Nginx error message because the above commands set up a bare deployment skeleton for your
-application(s) and it is now time to deploy it using Capistrano. Read about this in the next section.
+This uploads the chef repository and runs the Chef client that automatically installs your server.
 
 ### Deploying your applications
 
-The scripts in **Setting up your server** set up a bare deployment structure on your
-server that you can use with Capistrano. The deployment structure for your
-apps look like:
+The two commands in the previous section prepare your apps to be deployed with
+Capistrano. The folder structure for each app on your server looks like:
 
 ```
 /u/apps/your_app
@@ -109,19 +92,33 @@ apps look like:
     sockets/
 ```
 
-First, *capify* your application by running the following command in your application:
+To deploy your application:
+
+Add the `intercity` gem to your `Gemfile`:
+
+```ruby
+# Your Gemfile
+
+# other gems..
+
+gem 'intercity'
+```
+
+Run
 
 ```sh
 capify .
 ```
 
-Then, copy the ```examples/deploy.rb``` file from this repository into
-```config/deploy.rb``` in your Capified Rails project and modify it
-so the servers lines point to the server you just set up.
+to generate the Capistrano configuration files.
 
-You will want to uncomment the line about assets in the file `Capfile` in your
-application. This makes sure compilation of the asset pipeline works. Your
-Capfile should look like this:
+Uncomment the
+
+```
+load 'deploy/assets'
+```
+
+line in the generated `Capfile` so it looks like this:
 
 ```ruby
 load 'deploy'
@@ -129,15 +126,23 @@ load 'deploy/assets'
 load 'config/deploy'
 ```
 
-Finally, you can run one of the folllowing commands to deploy your application:
+Open `config/deploy.rb` and set the `application` and `repository` settings.
+
+Run
+
+```sh
+cap deploy:check
+```
+
+to see if everything is set up. And then
 
 ```sh
 cap deploy
 ```
 
-And you are deployed!
+to deploy your application!
 
-## If you need help
+## Getting help
 
 The following steps will let you **set up or test your own Rails infrastructure
 in 5 - 10 minutes**. If something doesn't work or you need more instructions:

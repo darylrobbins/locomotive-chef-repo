@@ -20,7 +20,6 @@
 include_recipe "sudo"
 include_recipe "nginx"
 include_recipe "bluepill"
-include_recipe "rails::dependencies"
 
 user "deploy" do
   comment "Deploy User"
@@ -28,12 +27,6 @@ user "deploy" do
   shell "/bin/bash"
 
   supports(:manage_home => true )
-end
-
-template "/home/deploy/.bashrc" do
-  source "bashrc.erb"
-  owner "deploy"
-  group "deploy"
 end
 
 group "deploy" do
@@ -56,12 +49,6 @@ if node[:deploy_users]
       supports(:manage_home => true )
     end
 
-    template "/home/#{deploy_user}/.bashrc" do
-      source "bashrc.erb"
-      owner "#{deploy_user}"
-      group "#{deploy_user}"
-    end
-
     group deploy_user do
       members [deploy_user]
     end
@@ -74,20 +61,35 @@ if node[:deploy_users]
   end
 end
 
+include_recipe "rbenv::default"
+include_recipe "rbenv::ruby_build"
+
+include_recipe "rails::dependencies"
+
+applications_root = node[:rails][:applications_root]
+
 if node[:active_applications]
 
   node[:active_applications].each do |app, app_info|
     rails_env = app_info['rails_env'] || "production"
     deploy_user = app_info['deploy_user'] || "deploy"
+    app_env = app_info['app_env'] || {}
+    app_env['RAILS_ENV'] = rails_env
 
-    directory "/u/apps/#{app}" do
+    rbenv_ruby app_info['ruby_version']
+
+    rbenv_gem "bundler" do
+      ruby_version app_info['ruby_version']
+    end
+
+    directory "#{applications_root}/#{app}" do
       recursive true
       group deploy_user
       owner deploy_user
     end
 
     ['config', 'shared', 'shared/config', 'shared/sockets', 'shared/pids', 'shared/log', 'shared/system', 'releases'].each do |dir|
-      directory "/u/apps/#{app}/#{dir}" do
+      directory "#{applications_root}/#{app}/#{dir}" do
         recursive true
         group deploy_user
         owner deploy_user
@@ -96,7 +98,7 @@ if node[:active_applications]
 
     if app_info['database_info']
 
-      template "/u/apps/#{app}/shared/config/database.yml" do
+      template "#{applications_root}/#{app}/shared/config/database.yml" do
         owner deploy_user
         group deploy_user
         mode 0600
@@ -106,21 +108,13 @@ if node[:active_applications]
 
     end
 
-    if app_info['packages'] && app_info['packages'].include?('sphinxsearch')
-      directory "/u/apps/#{app}/shared/sphinx" do
-        recursive true
-        group deploy_user
-        owner deploy_user
-      end
-    end
-
     template "/etc/nginx/sites-available/#{app}.conf" do
       source "app_nginx.conf.erb"
-      variables :name => app, :domain_names => app_info['domain_names'], :enable_ssl => File.exists?("/u/apps/#{app}/shared/config/certificate.crt")
+      variables :name => app, :domain_names => app_info['domain_names'], :enable_ssl => File.exists?("#{applications_root}/#{app}/shared/config/certificate.crt")
       notifies :reload, resources(:service => "nginx")
     end
 
-    template "/u/apps/#{app}/shared/config/unicorn.rb" do
+    template "#{applications_root}/#{app}/shared/config/unicorn.rb" do
       mode 0644
       source "app_unicorn.rb.erb"
       variables :name => app, :deploy_user => deploy_user, :number_of_workers => app_info['number_of_workers'] || 2
@@ -129,7 +123,7 @@ if node[:active_applications]
     template "#{node[:bluepill][:conf_dir]}/#{app}.pill" do
       mode 0644
       source "bluepill_unicorn.rb.erb"
-      variables :name => app, :deploy_user => deploy_user, :app_env => app_info['app_env'], :rails_env => rails_env
+      variables :name => app, :deploy_user => deploy_user, :app_env => app_env, :rails_env => rails_env
     end
 
     bluepill_service app do
@@ -153,7 +147,7 @@ if node[:active_applications]
 
     logrotate_app "rails-#{app}" do
       cookbook "logrotate"
-      path ["/u/apps/#{app}/current/log/*.log"]
+      path ["#{applications_root}/#{app}/current/log/*.log"]
       frequency "daily"
       rotate 14
       compress true
